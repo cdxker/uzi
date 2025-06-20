@@ -128,12 +128,12 @@ func formatTime(t time.Time) string {
 	return t.Format("Jan 02")
 }
 
-func printSessions(stateManager *state.StateManager, activeSessions []string) error {
+func getLsString(stateManager *state.StateManager, activeSessions []string) (string, error) {
 	// Load all states to sort by UpdatedAt
 	states := make(map[string]state.AgentState)
 	if data, err := os.ReadFile(stateManager.GetStatePath()); err == nil {
 		if err := json.Unmarshal(data, &states); err != nil {
-			return fmt.Errorf("error parsing state file: %w", err)
+			return "", fmt.Errorf("error parsing state file: %w", err)
 		}
 	}
 
@@ -154,8 +154,9 @@ func printSessions(stateManager *state.StateManager, activeSessions []string) er
 		return sessions[i].state.UpdatedAt.After(sessions[j].state.UpdatedAt)
 	})
 
-	// Long format with tabwriter for alignment
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	// Create a buffer to batch all output
+	var buf bytes.Buffer
+	w := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
 
 	// Print header
 	fmt.Fprintf(w, "AGENT\tMODEL\tSTATUS    DIFF\tADDR\tPROMPT\n")
@@ -206,7 +207,7 @@ func printSessions(stateManager *state.StateManager, activeSessions []string) er
 	}
 	w.Flush()
 
-	return nil
+	return buf.String(), nil
 }
 
 func clearScreen() {
@@ -224,8 +225,6 @@ func executeLs(ctx context.Context, args []string) error {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 
-		// Initial display
-		clearScreen()
 		activeSessions, err := stateManager.GetActiveSessionsForRepo()
 		if err != nil {
 			return fmt.Errorf("error getting active sessions: %w", err)
@@ -234,9 +233,13 @@ func executeLs(ctx context.Context, args []string) error {
 		if len(activeSessions) == 0 {
 			fmt.Println("No active sessions found")
 		} else {
-			if err := printSessions(stateManager, activeSessions); err != nil {
+			sessions, err := getLsString(stateManager, activeSessions)
+			if err != nil {
 				return err
 			}
+
+			clearScreen()
+			fmt.Println(sessions)
 		}
 
 		// Watch loop
@@ -245,7 +248,6 @@ func executeLs(ctx context.Context, args []string) error {
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-ticker.C:
-				clearScreen()
 				activeSessions, err := stateManager.GetActiveSessionsForRepo()
 				if err != nil {
 					fmt.Printf("Error getting active sessions: %v\n", err)
@@ -255,9 +257,13 @@ func executeLs(ctx context.Context, args []string) error {
 				if len(activeSessions) == 0 {
 					fmt.Println("No active sessions found")
 				} else {
-					if err := printSessions(stateManager, activeSessions); err != nil {
+					sessions, err := getLsString(stateManager, activeSessions)
+					if err != nil {
 						fmt.Printf("Error printing sessions: %v\n", err)
 					}
+
+					clearScreen()
+					fmt.Println(sessions)
 				}
 			}
 		}
@@ -273,6 +279,10 @@ func executeLs(ctx context.Context, args []string) error {
 			return nil
 		}
 
-		return printSessions(stateManager, activeSessions)
+		sessions, err := getLsString(stateManager, activeSessions)
+
+		fmt.Println(sessions)
 	}
+
+	return nil
 }
